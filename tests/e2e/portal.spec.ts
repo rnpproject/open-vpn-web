@@ -175,7 +175,7 @@ test("health endpoint reports component states without server configuration", as
   expect(response.status()).toBe(200);
   const body = await response.json();
   expect(body).toMatchObject({ status: "ok", firestore: "memory" });
-  expect(["ok", "unavailable"]).toContain(body.vpnApi);
+  expect(["ok", "unavailable", "skipped"]).toContain(body.vpnApi);
   expect(JSON.stringify(body)).not.toMatch(/apiKey|secret|private|baseUrl|localhost|127\.0\.0\.1/i);
 });
 

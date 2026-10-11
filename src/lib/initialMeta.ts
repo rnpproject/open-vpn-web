@@ -6,7 +6,29 @@ import type { Meta } from "@/components/Portal";
 
 export async function initialMeta(): Promise<Meta> {
   const env = getEnv();
-  const [s, t, site] = await Promise.allSettled([getServices(), getStatus(), getSiteSettings()]);
+  const site = await getSiteSettings();
+  const siteClosed = site?.mode === "maintenance" || site?.mode === "closed";
+  if (!site || siteClosed)
+    return {
+      services: [],
+      catalogUnavailable: false,
+      statusUnavailable: false,
+      status: null,
+      serverNow: new Date().toISOString(),
+      quota: {},
+      quotaUnavailable: false,
+      unavailable: false,
+      allowed_days: env.ALLOWED_DAYS,
+      support_url: env.SUPPORT_URL || undefined,
+      turnstile_site_key: env.TURNSTILE_SITE_KEY || undefined,
+      siteMode: site?.mode,
+      siteMessage: site?.message,
+      estimatedEndAt: site?.estimatedEndAt,
+      pausedServices: site?.pausedServices,
+      siteStatusUnavailable: !site,
+    };
+
+  const [s, t] = await Promise.allSettled([getServices(), getStatus()]);
   const services = s.status === "fulfilled" ? s.value.value : [];
   const status = t.status === "fulfilled" ? t.value.value : null;
   let quota: Meta["quota"] = {};
@@ -42,9 +64,9 @@ export async function initialMeta(): Promise<Meta> {
     allowed_days: env.ALLOWED_DAYS,
     support_url: env.SUPPORT_URL || undefined,
     turnstile_site_key: env.TURNSTILE_SITE_KEY || undefined,
-    siteMode: site.status === "fulfilled" ? site.value?.mode : undefined,
-    siteMessage: site.status === "fulfilled" ? site.value?.message : undefined,
-    estimatedEndAt: site.status === "fulfilled" ? site.value?.estimatedEndAt : undefined,
-    pausedServices: site.status === "fulfilled" ? site.value?.pausedServices : undefined,
+    siteMode: site.mode,
+    siteMessage: site.message,
+    estimatedEndAt: site.estimatedEndAt,
+    pausedServices: site.pausedServices,
   };
 }

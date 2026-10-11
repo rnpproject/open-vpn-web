@@ -1,10 +1,13 @@
 import { notFound } from "next/navigation";
+import { getSiteSettings } from "@/lib/firestore";
 import { getServices } from "@/lib/vpnApi";
 
 const VERIFY_TIMEOUT_MS = 1200;
 
 async function serverExists(id: string): Promise<boolean | null> {
   try {
+    const site = await getSiteSettings();
+    if (!site || site.mode === "maintenance" || site.mode === "closed") return null;
     const services = await Promise.race([
       getServices().then((result) => result.value),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), VERIFY_TIMEOUT_MS)),

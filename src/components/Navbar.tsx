@@ -27,7 +27,7 @@ export function Navbar({ services = [] }: { services?: Service[] }) {
             <span className="brand__name">
               Free VPN<span style={{ color: "var(--primary)" }}>.</span>
             </span>
-            <span className="brand__caption">QubanTra</span>
+            <span className="brand__caption">rnpproject</span>
           </span>
         </Link>
         <nav className="desktop-nav" aria-label="Main navigation">

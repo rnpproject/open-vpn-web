@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkQuotaStore } from "@/lib/firestore";
+import { checkQuotaStore, getSiteSettings, quotaStoreName } from "@/lib/firestore";
 import { getServices, getStatus } from "@/lib/vpnApi";
 import { withTimeout } from "@/lib/time";
 
@@ -10,6 +10,28 @@ const HEALTH_TIMEOUT_MS = 10_000;
 
 export async function GET() {
   const gather = async () => {
+    const siteSettings = await getSiteSettings();
+    if (!siteSettings)
+      return NextResponse.json(
+        {
+          status: "degraded",
+          version: process.env.BUILD_VERSION ?? process.env.npm_package_version ?? "unknown",
+          firestore: "unavailable",
+          vpnApi: "skipped",
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    if (siteSettings.mode === "maintenance" || siteSettings.mode === "closed")
+      return NextResponse.json(
+        {
+          status: "ok",
+          version: process.env.BUILD_VERSION ?? process.env.npm_package_version ?? "unknown",
+          firestore: quotaStoreName() === "memory" ? "memory" : "skipped",
+          vpnApi: "skipped",
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+
     const [storeResult, servicesResult, statusResult] = await Promise.allSettled([
       checkQuotaStore(),
       getServices(),

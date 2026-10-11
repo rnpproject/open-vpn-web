@@ -12,11 +12,36 @@ const META_TIMEOUT_MS = 12_000;
 export async function GET() {
   const env = getEnv();
   const gather = async () => {
-    const [serviceResult, statusResult, siteResult] = await Promise.allSettled([
-      getServices(),
-      getStatus(),
-      getSiteSettings(),
-    ]);
+    const siteSettings = await getSiteSettings();
+    const siteUnavailable = !siteSettings;
+    const siteClosed = siteSettings?.mode === "maintenance" || siteSettings?.mode === "closed";
+    if (siteUnavailable || siteClosed)
+      return NextResponse.json(
+        {
+          data: {
+            services: [],
+            catalogUnavailable: false,
+            statusUnavailable: false,
+            status: null,
+            serverNow: new Date().toISOString(),
+            quota: { resetsAt: new Date().toISOString() },
+            quotaUnavailable: false,
+            unavailable: false,
+            stale: false,
+            allowed_days: env.ALLOWED_DAYS,
+            support_url: env.SUPPORT_URL || undefined,
+            turnstile_site_key: env.TURNSTILE_SITE_KEY || undefined,
+            siteMode: siteSettings?.mode,
+            siteMessage: siteSettings?.message,
+            estimatedEndAt: siteSettings?.estimatedEndAt,
+            pausedServices: siteSettings?.pausedServices,
+            siteStatusUnavailable: siteUnavailable,
+          },
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+
+    const [serviceResult, statusResult] = await Promise.allSettled([getServices(), getStatus()]);
     const services = serviceResult.status === "fulfilled" ? serviceResult.value.value : [];
     const status = statusResult.status === "fulfilled" ? statusResult.value.value : null;
     const stale =
@@ -56,12 +81,10 @@ export async function GET() {
           allowed_days: env.ALLOWED_DAYS,
           support_url: env.SUPPORT_URL || undefined,
           turnstile_site_key: env.TURNSTILE_SITE_KEY || undefined,
-          siteMode: siteResult.status === "fulfilled" ? siteResult.value?.mode : undefined,
-          siteMessage: siteResult.status === "fulfilled" ? siteResult.value?.message : undefined,
-          estimatedEndAt:
-            siteResult.status === "fulfilled" ? siteResult.value?.estimatedEndAt : undefined,
-          pausedServices:
-            siteResult.status === "fulfilled" ? siteResult.value?.pausedServices : undefined,
+          siteMode: siteSettings.mode,
+          siteMessage: siteSettings.message,
+          estimatedEndAt: siteSettings.estimatedEndAt,
+          pausedServices: siteSettings.pausedServices,
         },
       },
       { headers: { "Cache-Control": "no-store" } },

@@ -32,6 +32,7 @@ export type Meta = {
   siteMessage?: string;
   estimatedEndAt?: string;
   pausedServices?: string[];
+  siteStatusUnavailable?: boolean;
 };
 
 function NoticeBanner({ meta }: { meta: Meta }) {
@@ -69,7 +70,13 @@ function MetaErrorPanel({ onRetry }: { onRetry: () => void }) {
 
 function SiteStatePanel({ meta }: { meta: Meta }) {
   const closed = meta.siteMode === "closed";
+  const statusUnavailable = meta.siteStatusUnavailable === true;
   const estimatedEnd = meta.estimatedEndAt ? new Date(meta.estimatedEndAt) : null;
+  const title = statusUnavailable
+    ? "Status portal belum tersedia"
+    : closed
+      ? "Portal ditutup"
+      : "Portal sedang maintenance";
   return (
     <section
       className="recovery-page site-state-panel"
@@ -82,12 +89,14 @@ function SiteStatePanel({ meta }: { meta: Meta }) {
         <circle cx="232" cy="30" r="4" />
       </svg>
       <p className="eyebrow">PORTAL AKUN VPN</p>
-      <h1 id="site-state-title">{closed ? "Portal ditutup" : "Portal sedang maintenance"}</h1>
+      <h1 id="site-state-title">{title}</h1>
       <p>
-        {meta.siteMessage ||
-          (closed ? "Portal ini sudah ditutup." : "Create akun dihentikan sementara.")}
+        {statusUnavailable
+          ? "Status situs belum dapat dipastikan. Data server tidak diperiksa sampai status situs tersedia."
+          : meta.siteMessage ||
+            (closed ? "Portal ini sudah ditutup." : "Create akun dihentikan sementara.")}
       </p>
-      {!closed && estimatedEnd && Number.isFinite(estimatedEnd.getTime()) ? (
+      {!closed && !statusUnavailable && estimatedEnd && Number.isFinite(estimatedEnd.getTime()) ? (
         <p>
           Perkiraan selesai:{" "}
           {new Intl.DateTimeFormat("id-ID", {
@@ -262,7 +271,7 @@ export function Portal({
     return <LoadingPanel label="Loading portal data" />;
   }
 
-  if (meta.siteMode === "maintenance" || meta.siteMode === "closed") {
+  if (meta.siteStatusUnavailable || meta.siteMode === "maintenance" || meta.siteMode === "closed") {
     return <SiteStatePanel meta={meta} />;
   }
 

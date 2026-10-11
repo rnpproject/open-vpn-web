@@ -39,8 +39,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <footer className="site-footer">
           <div className="site-footer__inner">
             <p>
-              © {new Date().getFullYear()} QubanTra. Gunakan service dengan
-              bertanggung jawab.
+              © {new Date().getFullYear()} rnpproject. Gunakan service dengan bertanggung jawab.
             </p>
             <nav aria-label="Footer links">
               <Link href="/ketentuan">Terms</Link>

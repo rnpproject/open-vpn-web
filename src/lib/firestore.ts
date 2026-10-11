@@ -10,7 +10,8 @@ type Store = {
   runTransaction: (fn: (tx: any) => Promise<unknown>) => Promise<unknown>;
   collection: (name: string) => any;
 };
-type Reservation = { ok: true; day: string; reservationId: string } | { ok: false; day: string; used: number };
+type Reservation =
+  { ok: true; day: string; reservationId: string } | { ok: false; day: string; used: number };
 type IpReservation = { ok: true; logId: string } | { ok: false; used: number; retryAfter: number };
 /** Reservasi yang belum difinalisasi. Bila proses mati sebelum commit/release,
  *  entri kedaluwarsa setelah RESERVATION_TTL_MS dan direklamasi saat baca berikutnya. */
@@ -136,7 +137,6 @@ export async function getSiteSettings(): Promise<SiteSettings | null> {
     if (siteSettingsCache.pending) return siteSettingsCache.pending;
     return siteSettingsCache.value ?? null;
   }
-  const lastKnown = siteSettingsCache?.value;
   const pending = (async () => {
     if (selectedStore() === "memory") return normalSiteSettings;
     const db = await firebaseStore();
@@ -161,9 +161,13 @@ export async function getSiteSettings(): Promise<SiteSettings | null> {
     const value = await pending;
     siteSettingsCache = { value, expires: Date.now() + 5000 };
     return value;
-  } catch {
-    siteSettingsCache = { value: lastKnown, expires: Date.now() + 5000 };
-    return lastKnown ?? null;
+  } catch (cause) {
+    console.error(
+      "Gagal membaca status situs dari Firestore.",
+      cause instanceof Error ? cause.name : "UnknownError",
+    );
+    siteSettingsCache = { expires: Date.now() + 5000 };
+    return null;
   }
 }
 
@@ -403,10 +407,7 @@ async function readSnapshot(
             typeof item?.expiresAt?.toMillis === "function" ? item.expiresAt.toMillis() : 0,
         }))
       : [];
-  const buildEntry = (
-    id: string,
-    readUsed: (serviceId: string, days: number) => number,
-  ): void => {
+  const buildEntry = (id: string, readUsed: (serviceId: string, days: number) => number): void => {
     const serviceLimits = limits[id] ?? DEFAULT_QUOTA_PER_DURATION;
     const durations: Record<string, DurationQuotaEntry | number | string> = {};
     let usedTotal = 0;

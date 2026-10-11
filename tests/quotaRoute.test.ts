@@ -1,4 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  getSiteSettings: vi.fn(async () => ({ mode: "normal", message: "", pausedServices: [] })),
+  getServices: vi.fn(async () => ({
+    value: [{ id: "ssh", label: "SSH", available: true }],
+    stale: false,
+    fetchedAt: Date.now(),
+  })),
+}));
 
 vi.mock("@/lib/env", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/lib/env")>();
@@ -18,7 +27,7 @@ vi.mock("@/lib/env", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/firestore", () => ({
-  getSiteSettings: vi.fn(async () => ({ mode: "normal", message: "", pausedServices: [] })),
+  getSiteSettings: mocks.getSiteSettings,
   reserveQuota: vi.fn(async () => ({ ok: false, day: "2026-10-10", used: 4 })),
   releaseQuota: vi.fn(async () => undefined),
   commitQuota: vi.fn(async () => undefined),
@@ -39,15 +48,39 @@ vi.mock("@/lib/sessionLimit", () => ({
 }));
 vi.mock("@/lib/vpnApi", () => ({
   ApiError: class ApiError extends Error {},
-  getServices: vi.fn(async () => ({
-    value: [{ id: "ssh", label: "SSH", available: true }],
-    stale: false,
-    fetchedAt: Date.now(),
-  })),
+  getServices: mocks.getServices,
   createAccount: vi.fn(),
 }));
 
-describe("POST /api/accounts per-duration quota", () => {
+describe("POST /api/accounts site gate and per-duration quota", () => {
+  beforeEach(() => {
+    mocks.getSiteSettings.mockResolvedValue({ mode: "normal", message: "", pausedServices: [] });
+  });
+
+  it("does not check the upstream API while full maintenance is active", async () => {
+    mocks.getSiteSettings.mockResolvedValue({
+      mode: "maintenance",
+      message: "Maintenance sedang berlangsung.",
+      pausedServices: [],
+    });
+    const { POST } = await import("@/app/api/accounts/route");
+    const response = await POST(
+      new Request("http://portal.test/api/accounts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "http://portal.test",
+          host: "portal.test",
+        },
+        body: JSON.stringify({ service: "ssh", days: 1 }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe("maintenance");
+    expect(mocks.getServices).not.toHaveBeenCalled();
+  });
+
   it("rejects with 429 QUOTA_EXHAUSTED and resetsAt when the duration bucket is full", async () => {
     const { POST } = await import("@/app/api/accounts/route");
     const response = await POST(
