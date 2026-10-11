@@ -1,0 +1,53 @@
+{
+  "name": "open-vpn-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "node --env-file-if-exists=.env.local .next/standalone/server.js",
+    "postbuild": "node scripts/copy-standalone-assets.mjs",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write src tests scripts mock-api",
+    "format:check": "prettier --check src tests scripts mock-api",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "mock": "node mock-api/server.mjs",
+    "test": "vitest run",
+    "test:e2e": "npm run build && playwright test",
+    "test:watch": "vitest",
+    "test:security": "node scripts/check-client-secrets.mjs",
+    "hash:admin-password": "node scripts/hash-admin-password.mjs",
+    "test:integration": "vitest run tests/api.integration.test.ts",
+    "test:all": "npm test && npm run test:security && npm run test:e2e"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.10.0",
+    "lucide-react": "^1.52.0",
+    "next": "16.3.8",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24.19.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  },
+  "type": "module",
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

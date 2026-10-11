@@ -1,0 +1,41 @@
+:root {
+  --bg: #f7f8f8;
+  --surface: #ffffff;
+  --surface-tint: #eaf3f8;
+  --ink: #183345;
+  --muted: #526573;
+  --primary: #0866b5;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, #000);
+  --sky: #049dd9;
+  --cyan: #04b2d9;
+  --warm: #f2c438;
+  --warm-tint: color-mix(in srgb, var(--warm) 22%, #fff);
+  --danger: #b42318;
+  --line: color-mix(in srgb, var(--ink) 10%, #fff);
+  --radius: 8px;
+  --radius-lg: 10px;
+  --radius-pill: 6px; /* name kept for existing references; no longer a full pill */
+  --shadow-soft: 0 24px 80px rgb(24 51 69 / 0.12);
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Dipakai kode yang ada (jaga kompatibilitas). */
+  --sky-tint: color-mix(in srgb, var(--sky) 12%, #fff);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-tint: var(--surface-tint);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-sky: var(--sky);
+  --color-sky-tint: var(--sky-tint);
+  --color-cyan: var(--cyan);
+  --color-warm: var(--warm);
+  --color-warm-tint: var(--warm-tint);
+  --color-danger: var(--danger);
+  --color-line: var(--line);
+  --font-sans: var(--font-sans);
+}
