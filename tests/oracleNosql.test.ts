@@ -156,4 +156,17 @@ describe("Oracle NoSQL quota store", () => {
     expect((await reserveIpQuota("ip-hash", "ssh", nextHour, 1, 1)).ok).toBe(false);
     expect(oracle.rows.has(JSON.stringify(["vpn_web_ip_limits", "ip_ip-hash"]))).toBe(true);
   });
+
+  it("fits hashed IP document keys within Oracle NoSQL's primary-key limit", async () => {
+    configureOracleStore();
+
+    await reserveIpQuota("a".repeat(64), "ssh", new Date(), 5, 3);
+
+    const [[collectionType, documentId]] = [...oracle.rows.keys()].map((key) =>
+      JSON.parse(key),
+    ) as Array<[string, string]>;
+    expect(collectionType).toBe("vpn_web_ip_limits");
+    expect(collectionType.length + documentId.length).toBeLessThanOrEqual(64);
+    expect(documentId).not.toBe(`ip_${"a".repeat(64)}`);
+  });
 });

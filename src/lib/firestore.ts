@@ -1,7 +1,7 @@
 import "server-only";
 /* eslint-disable @typescript-eslint/no-explicit-any -- Firebase Admin is dynamically imported. */
 /* Firebase is loaded lazily so a local deployment needs no Firebase credentials. */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DEFAULT_QUOTA_PER_DURATION, getEnv } from "@/lib/env";
 import { nextResetAt, wibDay } from "@/lib/time";
 import { getOracleDocument, updateOracleDocument } from "@/lib/oracleNosql";
@@ -118,7 +118,12 @@ function oraclePending(data: Record<string, unknown> | undefined): PendingReserv
         typeof item === "object" &&
         typeof (item as PendingReservation).id === "string" &&
         typeof (item as PendingReservation).expiresAt === "number"
-          ? [{ id: (item as PendingReservation).id, expiresAt: (item as PendingReservation).expiresAt }]
+          ? [
+              {
+                id: (item as PendingReservation).id,
+                expiresAt: (item as PendingReservation).expiresAt,
+              },
+            ]
           : [],
       )
     : [];
@@ -131,6 +136,14 @@ function storedCount(value: unknown): number {
 
 const quotaKey = (day: string, service: string, days: number): string =>
   `${day}_${service}_${days}`;
+const IP_LIMIT_COLLECTION = "vpn_web_ip_limits";
+
+function oracleIpDocumentId(ipHash: string): string {
+  const documentId = `ip_${ipHash}`;
+  if (IP_LIMIT_COLLECTION.length + documentId.length <= 64) return documentId;
+  return `ip_${createHash("sha256").update(ipHash).digest("base64url")}`;
+}
+
 function resetMs(now: Date): number {
   return nextResetAt(now).getTime();
 }
@@ -218,11 +231,11 @@ export async function setSiteSettings(
     updatedBy,
   };
   if (selectedStore() === "oracle-nosql") {
-    await updateOracleDocument(
-      "site_settings",
-      "state",
-      () => ({ write: true, payload: updated, result: undefined }),
-    );
+    await updateOracleDocument("site_settings", "state", () => ({
+      write: true,
+      payload: updated,
+      result: undefined,
+    }));
   } else {
     const db = await firebaseStore();
     await db.collection("site_settings").doc("state").set(updated);
@@ -658,8 +671,8 @@ export async function reserveIpQuota(
   }
   if (selectedStore() === "oracle-nosql") {
     return updateOracleDocument<IpReservation>(
-      "vpn_web_ip_limits",
-      `ip_${ipHash}`,
+      IP_LIMIT_COLLECTION,
+      oracleIpDocumentId(ipHash),
       (data) => {
         const hourUsed = data?.hour === hour ? storedCount(data.hourlyUsed) : 0;
         const dailyCounts =
