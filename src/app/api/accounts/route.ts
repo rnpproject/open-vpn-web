@@ -67,6 +67,7 @@ function logStoreFailure(requestId: string, stage: string, cause: unknown): void
         stage,
         error: cause instanceof Error ? cause.name : "UnknownError",
         code: storeErrorCode(cause),
+        detail: cause instanceof SyntaxError ? cause.message.slice(0, 160) : undefined,
       }),
     );
 }
