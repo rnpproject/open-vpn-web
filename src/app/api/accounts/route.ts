@@ -43,6 +43,34 @@ const logCreate = (
     }),
   );
 
+function storeErrorCode(cause: unknown): string | undefined {
+    if (!cause || typeof cause !== "object") return undefined;
+    if ("code" in cause && typeof cause.code === "string") return cause.code;
+    if ("_errCode" in cause) {
+      const oracleCode = cause._errCode;
+      if (
+        oracleCode &&
+        typeof oracleCode === "object" &&
+        "_name" in oracleCode &&
+        typeof oracleCode._name === "string"
+      )
+        return oracleCode._name;
+    }
+    return undefined;
+}
+
+function logStoreFailure(requestId: string, stage: string, cause: unknown): void {
+    console.error(
+      JSON.stringify({
+        event: "account_store_failed",
+        request_id: requestId,
+        stage,
+        error: cause instanceof Error ? cause.name : "UnknownError",
+        code: storeErrorCode(cause),
+      }),
+    );
+}
+
 export async function POST(request: Request) {
   const ctx: { cookie: string | null } = { cookie: null };
   const response = await handle(request, ctx);
@@ -107,7 +135,8 @@ async function handle(request: Request, ctx: { cookie: string | null }) {
     let attempt;
     try {
       attempt = await reserveCreateAttempt(request.headers, service.id, now, env);
-    } catch {
+    } catch (cause) {
+      logStoreFailure(requestId, "ip_limit", cause);
       return error(503, "store_unavailable", "Penyimpanan kuota sedang tidak dapat dihubungi.");
     }
     if (!attempt.ok)
@@ -126,13 +155,15 @@ async function handle(request: Request, ctx: { cookie: string | null }) {
         return error(429, "rate_limited", "Terlalu banyak percobaan.", {
           "Retry-After": String(sessionAttempt.retryAfter),
         });
-    } catch {
+    } catch (cause) {
+      logStoreFailure(requestId, "session_limit", cause);
       return error(503, "store_unavailable", "Penyimpanan kuota sedang tidak dapat dihubungi.");
     }
     let reservation;
     try {
       reservation = await reserveQuota(service.id, now, durationLimit, days);
-    } catch {
+    } catch (cause) {
+      logStoreFailure(requestId, "global_quota", cause);
       return error(503, "store_unavailable", "Penyimpanan kuota sedang tidak dapat dihubungi.");
     }
     if (!reservation.ok) {
