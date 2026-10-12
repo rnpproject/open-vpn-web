@@ -60,6 +60,14 @@ function storeErrorCode(cause: unknown): string | undefined {
 }
 
 function logStoreFailure(requestId: string, stage: string, cause: unknown): void {
+    const stack =
+      cause instanceof SyntaxError
+        ? cause.stack
+            ?.split("\n")
+            .slice(1, 5)
+            .map((line) => line.trim())
+            .join(" | ")
+        : undefined;
     console.error(
       JSON.stringify({
         event: "account_store_failed",
@@ -68,6 +76,7 @@ function logStoreFailure(requestId: string, stage: string, cause: unknown): void
         error: cause instanceof Error ? cause.name : "UnknownError",
         code: storeErrorCode(cause),
         detail: cause instanceof SyntaxError ? cause.message.slice(0, 160) : undefined,
+        stack,
       }),
     );
 }
