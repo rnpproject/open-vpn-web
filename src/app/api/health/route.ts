@@ -16,6 +16,7 @@ export async function GET() {
         {
           status: "degraded",
           version: process.env.BUILD_VERSION ?? process.env.npm_package_version ?? "unknown",
+          database: "unavailable",
           firestore: "unavailable",
           vpnApi: "skipped",
         },
@@ -26,6 +27,7 @@ export async function GET() {
         {
           status: "ok",
           version: process.env.BUILD_VERSION ?? process.env.npm_package_version ?? "unknown",
+          database: quotaStoreName() === "memory" ? "memory" : "skipped",
           firestore: quotaStoreName() === "memory" ? "memory" : "skipped",
           vpnApi: "skipped",
         },
@@ -37,7 +39,18 @@ export async function GET() {
       getServices(),
       getStatus(),
     ]);
-    const store = storeResult.status === "fulfilled" ? storeResult.value : "unavailable";
+    const database =
+      storeResult.status === "fulfilled"
+        ? storeResult.value === "memory"
+          ? "memory"
+          : quotaStoreName()
+        : "unavailable";
+    const firestore =
+      quotaStoreName() === "oracle-nosql"
+        ? "skipped"
+        : storeResult.status === "fulfilled"
+          ? storeResult.value
+          : "unavailable";
     const api =
       servicesResult.status === "fulfilled" &&
       statusResult.status === "fulfilled" &&
@@ -49,7 +62,8 @@ export async function GET() {
       {
         status: "ok",
         version: process.env.BUILD_VERSION ?? process.env.npm_package_version ?? "unknown",
-        firestore: store,
+        database,
+        firestore,
         vpnApi: api,
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -62,6 +76,7 @@ export async function GET() {
       {
         status: "degraded",
         version: process.env.BUILD_VERSION ?? process.env.npm_package_version ?? "unknown",
+        database: "unavailable",
         firestore: "unavailable",
         vpnApi: "unavailable",
       },

@@ -4,6 +4,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_QUOTA_PER_DURATION, getEnv } from "@/lib/env";
 import { nextResetAt, wibDay } from "@/lib/time";
+import { getOracleDocument, updateOracleDocument } from "@/lib/oracleNosql";
 import { Timestamp } from "firebase-admin/firestore";
 
 type Store = {
@@ -52,7 +53,7 @@ const normalSiteSettings: SiteSettings = { mode: "normal", message: "", pausedSe
 let siteSettingsCache:
   { value?: SiteSettings; expires: number; pending?: Promise<SiteSettings> } | undefined;
 
-function selectedStore(): "memory" | "firestore" {
+function selectedStore(): "memory" | "firestore" | "oracle-nosql" {
   const env = getEnv();
   return (
     env.QUOTA_STORE ??
@@ -110,6 +111,24 @@ export function reconcilePending(
   return { pending: active, reclaimed: list.length - active.length };
 }
 
+function oraclePending(data: Record<string, unknown> | undefined): PendingReservation[] {
+  return Array.isArray(data?.pending)
+    ? data.pending.flatMap((item: unknown) =>
+        item &&
+        typeof item === "object" &&
+        typeof (item as PendingReservation).id === "string" &&
+        typeof (item as PendingReservation).expiresAt === "number"
+          ? [{ id: (item as PendingReservation).id, expiresAt: (item as PendingReservation).expiresAt }]
+          : [],
+      )
+    : [];
+}
+
+function storedCount(value: unknown): number {
+  const count = Number(value ?? 0);
+  return Number.isFinite(count) ? Math.max(0, count) : 0;
+}
+
 const quotaKey = (day: string, service: string, days: number): string =>
   `${day}_${service}_${days}`;
 function resetMs(now: Date): number {
@@ -127,7 +146,7 @@ function invalidate(): void {
 export function firestoreEnabled(): boolean {
   return selectedStore() === "firestore";
 }
-export function quotaStoreName(): "memory" | "firestore" {
+export function quotaStoreName(): "memory" | "firestore" | "oracle-nosql" {
   return selectedStore();
 }
 
@@ -139,6 +158,22 @@ export async function getSiteSettings(): Promise<SiteSettings | null> {
   }
   const pending = (async () => {
     if (selectedStore() === "memory") return normalSiteSettings;
+    if (selectedStore() === "oracle-nosql") {
+      const data = await getOracleDocument("site_settings", "state");
+      if (!data) return normalSiteSettings;
+      const modes = ["normal", "notice", "maintenance", "closed"] as const;
+      const mode = modes.includes(data.mode as (typeof modes)[number]) ? data.mode : "normal";
+      return {
+        mode,
+        message: typeof data.message === "string" ? data.message.slice(0, 280) : "",
+        estimatedEndAt: typeof data.estimatedEndAt === "string" ? data.estimatedEndAt : undefined,
+        pausedServices: Array.isArray(data.pausedServices)
+          ? data.pausedServices.filter((x: unknown) => typeof x === "string")
+          : [],
+        updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : undefined,
+        updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : undefined,
+      } as SiteSettings;
+    }
     const db = await firebaseStore();
     const snap = await db.collection("site_settings").doc("state").get();
     if (!snap.exists) return normalSiteSettings;
@@ -163,7 +198,7 @@ export async function getSiteSettings(): Promise<SiteSettings | null> {
     return value;
   } catch (cause) {
     console.error(
-      "Gagal membaca status situs dari Firestore.",
+      "Gagal membaca status situs dari database.",
       cause instanceof Error ? cause.name : "UnknownError",
     );
     siteSettingsCache = { expires: Date.now() + 5000 };
@@ -175,21 +210,33 @@ export async function setSiteSettings(
   settings: SiteSettings,
   updatedBy: string,
 ): Promise<SiteSettings> {
-  if (selectedStore() !== "firestore")
-    throw new Error("Pengaturan situs memerlukan QUOTA_STORE=firestore.");
-  const db = await firebaseStore();
+  if (selectedStore() === "memory")
+    throw new Error("Pengaturan situs memerlukan database persisten.");
   const updated: SiteSettings = {
     ...settings,
     updatedAt: new Date().toISOString(),
     updatedBy,
   };
-  await db.collection("site_settings").doc("state").set(updated);
+  if (selectedStore() === "oracle-nosql") {
+    await updateOracleDocument(
+      "site_settings",
+      "state",
+      () => ({ write: true, payload: updated, result: undefined }),
+    );
+  } else {
+    const db = await firebaseStore();
+    await db.collection("site_settings").doc("state").set(updated);
+  }
   siteSettingsCache = { value: updated, expires: Date.now() + 5000 };
   return updated;
 }
 
 export async function checkQuotaStore(): Promise<"memory" | "ok"> {
   if (selectedStore() === "memory") return "memory";
+  if (selectedStore() === "oracle-nosql") {
+    await getOracleDocument("vpn_web_health", "_probe");
+    return "ok";
+  }
   const db = await firebaseStore();
   await db.collection("vpn_web_health").doc("_probe").get();
   return "ok";
@@ -229,6 +276,39 @@ export async function reserveQuota(
     entry.pending = [...pending, { id: reservationId, expiresAt: nowMs + RESERVATION_TTL_MS }];
     memoryQuota.set(key, entry);
     return { ok: true, day, reservationId };
+  }
+  if (selectedStore() === "oracle-nosql") {
+    return updateOracleDocument<Reservation>(
+      "vpn_web_quota",
+      key,
+      (data) => {
+        const { pending, reclaimed } = reconcilePending(oraclePending(data), nowMs);
+        const used = Math.max(0, storedCount(data?.used) - reclaimed);
+        const payload = {
+          ...data,
+          day,
+          service,
+          days,
+          used,
+          pending,
+          updatedAt: new Date().toISOString(),
+          expireAt: new Date(nextResetAt(now).getTime() + 3 * 86_400_000).toISOString(),
+        };
+        if (used >= limit)
+          return { write: true, payload, result: { ok: false as const, day, used } };
+        const reservationId = randomUUID();
+        return {
+          write: true,
+          payload: {
+            ...payload,
+            used: used + 1,
+            pending: [...pending, { id: reservationId, expiresAt: nowMs + RESERVATION_TTL_MS }],
+          },
+          result: { ok: true as const, day, reservationId },
+        };
+      },
+      4,
+    );
   }
   const db = await firebaseStore();
   const ref = db.collection("vpn_web_quota").doc(key);
@@ -312,6 +392,29 @@ export async function releaseQuota(
     memoryQuota.set(key, entry);
     return;
   }
+  if (selectedStore() === "oracle-nosql") {
+    await updateOracleDocument(
+      "vpn_web_quota",
+      key,
+      (data) => {
+        if (!data) return { write: false, result: undefined };
+        const { pending, reclaimed } = reconcilePending(oraclePending(data), Date.now());
+        const { pending: next, found } = removePending(pending, reservationId);
+        return {
+          write: true,
+          payload: {
+            ...data,
+            used: Math.max(0, storedCount(data.used) - reclaimed - (found ? 1 : 0)),
+            pending: next,
+            updatedAt: new Date().toISOString(),
+          },
+          result: undefined,
+        };
+      },
+      4,
+    );
+    return;
+  }
   const db = await firebaseStore();
   const ref = db.collection("vpn_web_quota").doc(key);
   await db.runTransaction(async (tx: any) => {
@@ -358,6 +461,29 @@ export async function commitQuota(
     entry.pending = removePending(pending, reservationId).pending;
     entry.used = Math.max(0, entry.used - reclaimed);
     memoryQuota.set(key, entry);
+    return;
+  }
+  if (selectedStore() === "oracle-nosql") {
+    await updateOracleDocument(
+      "vpn_web_quota",
+      key,
+      (data) => {
+        if (!data) return { write: false, result: undefined };
+        const { pending, reclaimed } = reconcilePending(oraclePending(data), Date.now());
+        const next = removePending(pending, reservationId).pending;
+        return {
+          write: true,
+          payload: {
+            ...data,
+            used: Math.max(0, storedCount(data.used) - reclaimed),
+            pending: next,
+            updatedAt: new Date().toISOString(),
+          },
+          result: undefined,
+        };
+      },
+      4,
+    );
     return;
   }
   const db = await firebaseStore();
@@ -440,6 +566,26 @@ async function readSnapshot(
       });
     return result;
   }
+  if (selectedStore() === "oracle-nosql") {
+    await Promise.all(
+      services.map(async ({ id }) => {
+        const durations = Object.keys(limits[id] ?? DEFAULT_QUOTA_PER_DURATION);
+        const reads = await Promise.all(
+          durations.map(async (daysText) => {
+            const data = await getOracleDocument(
+              "vpn_web_quota",
+              quotaKey(day, id, Number(daysText)),
+            );
+            const { reclaimed } = reconcilePending(oraclePending(data), nowMs);
+            return [daysText, Math.max(0, storedCount(data?.used) - reclaimed)] as const;
+          }),
+        );
+        const usedByDuration = Object.fromEntries(reads);
+        buildEntry(id, (_serviceId, days) => usedByDuration[String(days)] ?? 0);
+      }),
+    );
+    return result;
+  }
   const db = await firebaseStore();
   await Promise.all(
     services.map(async ({ id }) => {
@@ -509,6 +655,44 @@ export async function reserveIpQuota(
     memoryIp.set(hourKey, hourly);
     memoryIp.set(dayKey, daily);
     return { ok: true, logId: `${hour}_${ipHash}_${Date.now()}` };
+  }
+  if (selectedStore() === "oracle-nosql") {
+    return updateOracleDocument<IpReservation>(
+      "vpn_web_ip_limits",
+      `ip_${ipHash}`,
+      (data) => {
+        const hourUsed = data?.hour === hour ? storedCount(data.hourlyUsed) : 0;
+        const dailyCounts =
+          data?.day === day && data.dailyUsed && typeof data.dailyUsed === "object"
+            ? (data.dailyUsed as Record<string, unknown>)
+            : {};
+        const dayUsed = storedCount(dailyCounts[service]);
+        if (hourUsed >= hourlyLimit || dayUsed >= dailyLimit)
+          return {
+            write: false,
+            result: {
+              ok: false as const,
+              used: Math.max(hourUsed, dayUsed),
+              retryAfter: Math.ceil(
+                (Math.min(hourResetMs(now), resetMs(now)) - now.getTime()) / 1000,
+              ),
+            },
+          };
+
+        return {
+          write: true,
+          payload: {
+            hour,
+            hourlyUsed: hourUsed + 1,
+            day,
+            dailyUsed: { ...dailyCounts, [service]: dayUsed + 1 },
+            updatedAt: new Date().toISOString(),
+          },
+          result: { ok: true as const, logId: `${hour}_${ipHash}_${Date.now()}` },
+        };
+      },
+      3,
+    );
   }
   const db = await firebaseStore();
   const hourRef = db.collection("vpn_web_ip_limits").doc(`h_${hour}_${ipHash}`);

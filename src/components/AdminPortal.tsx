@@ -245,8 +245,8 @@ export function AdminPortal() {
       </header>
       {!state?.persistent ? (
         <p className="admin-alert" role="alert">
-          Store saat ini bukan Firestore. Pengaturan tidak dapat disimpan permanen; konfigurasikan
-          QUOTA_STORE=firestore dan kredensial Firebase.
+          Store saat ini hanya tersedia sementara. Pengaturan tidak dapat disimpan permanen;
+          konfigurasikan QUOTA_STORE dan kredensial database.
         </p>
       ) : null}
       {state?.forcedMaintenance ? (

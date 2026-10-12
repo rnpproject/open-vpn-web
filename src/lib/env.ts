@@ -77,6 +77,16 @@ const envSchema = z
     FIREBASE_PROJECT_ID: z.string().default(""),
     FIREBASE_CLIENT_EMAIL: z.string().default(""),
     FIREBASE_PRIVATE_KEY: z.string().default(""),
+    ORACLE_NOSQL_REGION: z.string().trim().default(""),
+    ORACLE_NOSQL_COMPARTMENT: z.string().trim().default(""),
+    ORACLE_NOSQL_TENANT_ID: z.string().trim().default(""),
+    ORACLE_NOSQL_USER_ID: z.string().trim().default(""),
+    ORACLE_NOSQL_FINGERPRINT: z.string().trim().default(""),
+    ORACLE_NOSQL_PRIVATE_KEY: z.string().default(""),
+    ORACLE_NOSQL_PASSPHRASE: z.string().default(""),
+    ORACLE_NOSQL_CONFIG_FILE: z.string().trim().default(""),
+    ORACLE_NOSQL_PROFILE: z.string().trim().default("DEFAULT"),
+    ORACLE_NOSQL_TABLE: z.string().trim().default("free_ovpn"),
     ADMIN_EMAILS: z
       .string()
       .default("")
@@ -89,7 +99,7 @@ const envSchema = z
       .pipe(z.array(z.string().email())),
     ADMIN_PASSWORD_HASH: z.string().default(""),
     ADMIN_SESSION_SECRET: z.string().default(""),
-    QUOTA_STORE: z.enum(["firestore", "memory"]).optional(),
+    QUOTA_STORE: z.enum(["firestore", "oracle-nosql", "memory"]).optional(),
     PER_IP_CREATE_LIMIT_PER_HOUR: z.coerce.number().int().min(1).default(5),
     PER_IP_CREATE_LIMIT_PER_DAY: z.coerce.number().int().min(1).default(3),
     IP_HASH_SALT: z.string().min(16),
@@ -116,6 +126,30 @@ const envSchema = z
       );
     },
     { message: "QUOTA_PER_DURATION harus memuat tepat durasi yang ada di ALLOWED_DAYS" },
+  )
+  .refine(
+    (value) => value.QUOTA_STORE !== "oracle-nosql" || Boolean(value.ORACLE_NOSQL_REGION),
+    {
+      message: "ORACLE_NOSQL_REGION wajib diisi saat QUOTA_STORE=oracle-nosql",
+      path: ["ORACLE_NOSQL_REGION"],
+    },
+  )
+  .refine(
+    (value) => {
+      if (value.QUOTA_STORE !== "oracle-nosql") return true;
+      const credentials = [
+        value.ORACLE_NOSQL_TENANT_ID,
+        value.ORACLE_NOSQL_USER_ID,
+        value.ORACLE_NOSQL_FINGERPRINT,
+        value.ORACLE_NOSQL_PRIVATE_KEY,
+      ];
+      return credentials.every((credential) => !credential) || credentials.every(Boolean);
+    },
+    {
+      message:
+        "ORACLE_NOSQL_TENANT_ID, ORACLE_NOSQL_USER_ID, ORACLE_NOSQL_FINGERPRINT, dan ORACLE_NOSQL_PRIVATE_KEY harus diisi bersama",
+      path: ["ORACLE_NOSQL_PRIVATE_KEY"],
+    },
   );
 
 export type AppEnv = z.infer<typeof envSchema>;

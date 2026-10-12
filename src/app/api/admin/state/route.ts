@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     return response({
       data: {
         settings,
-        persistent: quotaStoreName() === "firestore",
+        persistent: quotaStoreName() !== "memory",
         forcedMaintenance: process.env.FORCE_MAINTENANCE === "1",
       },
     });
@@ -62,8 +62,8 @@ export async function PUT(request: Request) {
   if ("response" in auth) return auth.response;
   if (process.env.FORCE_MAINTENANCE === "1")
     return response({ error: "Matikan FORCE_MAINTENANCE sebelum mengubah mode situs." }, 409);
-  if (quotaStoreName() !== "firestore")
-    return response({ error: "Pengaturan persisten memerlukan QUOTA_STORE=firestore." }, 503);
+  if (quotaStoreName() === "memory")
+    return response({ error: "Pengaturan situs memerlukan QUOTA_STORE yang persisten." }, 503);
 
   const raw = await request.text();
   if (raw.length > 8192) return response({ error: "Permintaan terlalu besar." }, 413);
