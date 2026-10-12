@@ -64,7 +64,7 @@ function logStoreFailure(requestId: string, stage: string, cause: unknown): void
       cause instanceof SyntaxError
         ? cause.stack
             ?.split("\n")
-            .slice(1, 5)
+            .slice(1, 13)
             .map((line) => line.trim())
             .join(" | ")
         : undefined;
